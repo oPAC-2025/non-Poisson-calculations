@@ -79,7 +79,7 @@ chi2_transformation<-function(raw_cts,mu_fit) {
 library(gamlss)
 library(bigsplines)
 #read data
-data=read.csv("C:/Project_results/13C  beam correction/C14_C12_example_2.csv", header=TRUE)
+data=read.csv("D:/Project_results/13C  beam correction/C14_C12_example_2.csv", header=TRUE)
 # unique passes labels
 label_vec=unique(data$label)
 total_passes=length(label_vec)
@@ -115,4 +115,4 @@ lines(data_out$mu_out, type="l", col="red")
 plot(data_out$raw_curr)
 lines(data_out$ideal_curr, type="l", col="red")
 
-hist(data_out$stationary, main=c("D_qp=",phi_out,"D_NB=",D_NB))
+hist(data_out$stationary, main=c("D_qp=",D_qp,"D_NB=",D_NB))
