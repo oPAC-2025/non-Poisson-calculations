@@ -5,7 +5,7 @@ mu_fitting<-function(raw_cts,raw_curr) {
     ideal_curr_best<-rep(mean(raw_curr),length(raw_curr))
   }  
   if (length(raw_cts)>5) {
-    #find secciones,lambda of curr spline, A_scale that minimize AIC of scaled (ideal) cts. Non-Poisson is not included yet.
+    #find secciones,lambda of curr spline, k_scale that minimize AIC of scaled (ideal) cts. Non-Poisson is not included yet.
     #first optimize lambda for spline fit of the current fixed (anchored) to the center (mean cts)
     #ideal cts: normalize the curr. fit and scale the fix shape to cts scale. Find optimum scale for best AIC of cts.
     x<<-c(1:length(raw_cts)) ; xy<<-data.frame(x,raw_cts); xcurr<<-data.frame(x,raw_curr)
@@ -13,7 +13,6 @@ mu_fitting<-function(raw_cts,raw_curr) {
     nknots_vect=c(2,3,4)
     
     for (nk in c(1:length(nknots_vect))) {
-      #minimize AIC by changing the smooth parameter, lambda
       nknots_test<<-nknots_vect[nk]; optim_lambda<<-optimise(aic_lambda, lower=5E-4, upper=5E-3, tol=1E-4)
       save_aic_data(nk)
     }
@@ -32,23 +31,23 @@ save_aic_data<-function(iter){
   ideal_cts_list[[iter]]<<-ideal_cts; curr_spline_list[[iter]]<<-as.vector(curr_spline_sm$y)
 }
 aic_lambda<-function(lambda) {
-  #calculate current spline for certain lambda 
+  #first optimize lambda for spline fit the current
   curr_spline_sm<<-smooth.spline(x,raw_curr,nknots=nknots_test,lambda=lambda) #trend to be gaussian
   curr_spline<-as.vector(curr_spline_sm$y)
   center_cts<<-mean(raw_cts)           ; center_curr<-mean(curr_spline)
   norm_curr_spline<-curr_spline/center_curr
   ideal_cts_unit<<-(1*center_cts*norm_curr_spline)
-  #ideal cts: normalize the curr. fit -0.5 to 0.5 and scale the fix shape to cts scale. Find optimum scale A for best AIC of cts.
+  #ideal cts: normalize the curr. fit -0.5 to 0.5 and scale the fix shape to cts scale. Find optimum scale for best AIC of cts.
   ideal_cts_model<-optimise(ideal_cts_calc_c,lower=0.02,upper=1.5,tol=0.01)
-  A_scale_good<-ideal_cts_model$minimum
+  k_scale_good<-ideal_cts_model$minimum
   my_aic<-ideal_cts_model$objective
-  ideal_cts<<- (A_scale_good*ideal_cts_unit)
+  ideal_cts<<- (k_scale_good*ideal_cts_unit)
   
   return(my_aic)
 }
 
-ideal_cts_calc_c<-function(A_scale) {
-  ideal_cts<- round(A_scale*ideal_cts_unit)
+ideal_cts_calc_c<-function(k_scale) {
+  ideal_cts<- round(k_scale*ideal_cts_unit)
   my_aic<-my_pois_aic(raw_cts,ideal_cts,4)
   return(my_aic)
 }
@@ -79,30 +78,41 @@ chi2_transformation<-function(raw_cts,mu_fit) {
 ##############################################################################################
 library(gamlss)
 library(bigsplines)
-
-data=read.csv("C14_C12_example_2.csv", header=TRUE)
+#read data
+data=read.csv("C:/Project_results/13C  beam correction/C14_C12_example_2.csv", header=TRUE)
+# unique passes labels
 label_vec=unique(data$label)
 total_passes=length(label_vec)
 mu_out=c() ; ideal_curr=c() 
+D_qp=0; D_NB=0
 cts_unc=data$raw_cts
 
-# Iterate thru each pass
+#iterate thru each pass
 for (pass in c(1:length(label_vec))) {
+  #read data for corresponding pass
   pass_data=data[which(data$label==label_vec[pass]),]
   raw_curr<<-pass_data$raw_curr
   raw_cts<<-pass_data$raw_cts
-  # fitting 
+  #poisson fitting
   fit_out=mu_fitting(raw_cts, raw_curr)
+  #save fitting cts and current data
   mu_out<-c(mu_out,fit_out[[2]]); ideal_curr<-c(ideal_curr,fit_out[[3]]) 
 }
 
-phi_out=sqrt(sum(((cts_unc-mu_out)/sqrt(mu_out))^2)/(length(cts_unc)-(total_passes))) # traditional phi
-cts_transformation<-chi2_transformation(cts_unc,mu_out)
+D_qp=sqrt(sum(((cts_unc-mu_out)/sqrt(mu_out))^2)/(length(cts_unc)-(total_passes))) # traditional quasi poisson dispersion D
+cts_transformation<-chi2_transformation(cts_unc,mu_out) #non stationary to stationary transformation
 
-plot(data$raw_cts)
-lines(mu_out, type="l", col="red")
+data_out=data.frame("raw_curr"=data$raw_curr,"raw_cts"=cts_unc,"stationary"=cts_transformation,"mu_out"=mu_out,"ideal_curr"=ideal_curr)
 
-plot(data$raw_curr)
-lines(ideal_curr, type="l", col="red")
+# try to carry out negative binomial fitting
+try(NB_fitII<-gamlss(data_out$stationary ~ 1, data=data_out, family = NBII(mu.link = "log", sigma.link = "log"), method=mixed(),  
+                     control=gamlss.control(trace=FALSE)),silent=TRUE)
+try(D_NB<-sqrt(1+exp(NB_fitII$sigma.coefficients[1])), silent=TRUE) #NB dispersion D
 
-hist(cts_transformation, main=c("D=",phi_out))
+plot(data_out$raw_cts)
+lines(data_out$mu_out, type="l", col="red")
+
+plot(data_out$raw_curr)
+lines(data_out$ideal_curr, type="l", col="red")
+
+hist(data_out$stationary, main=c("D_qp=",phi_out,"D_NB=",D_NB))
